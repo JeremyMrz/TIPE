@@ -27,6 +27,9 @@ type gen = string
 (* correspondant à une liste de strings *)
 type elem = string
 
+(* correpsond à l'ensemble des classes d'équivalences (partition des éléments) *)
+type cl_equivalence = elem list list
+
 (* structure de graphe *)
 type 'a mat = 'a array array
 type graphe = elem array * bool mat
@@ -34,33 +37,20 @@ type graphe = elem array * bool mat
 exception Liste_Vide
 exception Argument_Failure
 
-let init_matrix n m f = Array.init n (fun i -> Array.init m (fun j -> f i j))
-let get_ a i j = Array.get (Array.get a i) j
-let tr_ a i j = Array.get (Array.get a j) i
-let transpose a n m = init_matrix m n (tr_ a)
+(* ----------------------------------------------------------------------- UTILES *)
+(*------------------ PILE *)
+(* empile x au dessus de la pile p *)
+let empiler (p : 'a list) (x : 'a) : 'a list = x :: p
 
-(* ----------------------------------------------------------------------- GENERATEURS *)
-let lsign (g : gen) : int =
-  match g with "k" -> 1 | "c" -> -1 | _ -> raise Argument_Failure
+(* depile p = x::q, renvoie (x,q)
+remarque : renvoie une erreur "List_Vide" si p est vide *)
+let depiler (p : 'a list) : 'a * 'a list =
+  match p with [] -> raise Liste_Vide | x :: q -> (x, q)
 
-let rsign (g : gen) : int =
-  match g with "k" -> 1 | "c" -> 1 | _ -> raise Argument_Failure
+(* renvoie true si x est dans p, sinon false *)
+let rec recherche (p : 'a list) (x : 'a) : bool = List.mem x p
 
-let fuse_cl_eq (cl1 : string list list) (cl2 : string list list) :
-    string list list =
-  [ [] ]
-
-let knuth_bendix (cl : string list list) : string list list = [ [] ]
-
-(* ----------------------------------------------------------------------- GRAPHE *)
-(* initialise le graphe *)
-let init_graphe () : graphe = ([||], [| [||] |])
-let l_mult_graphe (g : graphe) (gen : string) : graphe = ([||], [| [||] |])
-let r_mult_graphe (g : graphe) (gen : string) : graphe = ([||], [| [||] |])
-let fuse_graphe (l : graphe array) : graphe = ([||], [| [||] |])
-let compare_graphe (g1 : graphe) (g2 : graphe) : bool = true
-let print_graphe (g : graphe) : unit = ()
-
+(*------------------ STRING *)
 (* renvoie true si s1 est plus petit que s2 selon l'ordre shortlex *)
 let shortlex (s1 : string) (s2 : string) : bool =
   let n1 = String.length s1 in
@@ -71,6 +61,7 @@ let shortlex (s1 : string) (s2 : string) : bool =
   in
   if n1 < n2 then true else if n2 < n1 then false else lex s1 s2
 
+(*------------------ SORT *)
 (* tri fusion ordre croissant selon l'ordre shortlex *)
 let rec fusion_sort (l : 'a list) (f : 'a -> 'a -> bool) : 'a list =
   let rec split (l : 'a list) : 'a list * 'a list =
@@ -91,17 +82,54 @@ let rec fusion_sort (l : 'a list) (f : 'a -> 'a -> bool) : 'a list =
       let l1, l2 = split l in
       fuse (fusion_sort l1 f) (fusion_sort l2 f)
 
-(* ----------------------------------------------------------------------- PILE *)
-(* empile x au dessus de la pile p *)
-let empiler (p : 'a list) (x : 'a) : 'a list = x :: p
+(* ----------------------------------------------------------------------- GENERATEURS *)
 
-(* depile p = x::q, renvoie (x,q)
-remarque : renvoie une erreur "List_Vide" si p est vide *)
-let depiler (p : 'a list) : 'a * 'a list =
-  match p with [] -> raise Liste_Vide | x :: q -> (x, q)
+(* signe des générateurs produit à gauche *)
+let lsign (g : gen) : int =
+  match g with "k" -> 1 | "c" -> -1 | _ -> raise Argument_Failure
 
-(* renvoie true si x est dans p, sinon false *)
-let rec recherche (p : 'a list) (x : 'a) : bool = List.mem x p
+(* signe des générateurs produit à droite *)
+let rsign (g : gen) : int =
+  match g with "k" -> 1 | "c" -> 1 | _ -> raise Argument_Failure
+
+(* fusionne deux classes d'équivalence 
+remarque : préserve l'ensemble des éléments des deux classes d'éuivalence *)
+let fuse_cl_eq (cl1 : cl_equivalence) (cl2 : cl_equivalence) : cl_equivalence =
+  [ [] ]
+
+(* renvoie le représentant canonique selon l'ordre shortlex d'une classe d'equivalence
+remarque : la liste ne doit pas être vide *)
+let canonique (l : elem list) : elem =
+  match fusion_sort l shortlex with [] -> raise Liste_Vide | x :: q -> x
+
+(* ----------------------------------------------------------------------- GRAPHE *)
+
+let init_matrix n m f = Array.init n (fun i -> Array.init m (fun j -> f i j))
+let get_ a i j = Array.get (Array.get a i) j
+let tr_ a i j = Array.get (Array.get a j) i
+let transpose a n m = init_matrix m n (tr_ a)
+
+(* initialise le graphe *)
+let init_graphe () : graphe = ([||], [| [||] |])
+
+(* mutliplie un graphe à gauche *)
+let l_mult_graphe (g : graphe) (gen : string) : graphe = ([||], [| [||] |])
+
+(* mutliplie un graphe à droite *)
+let r_mult_graphe (g : graphe) (gen : string) : graphe = ([||], [| [||] |])
+
+(* fusionne une liste de graphes 
+remarque : préserve l'ensemble des sommets/arrêtes *)
+let fuse_graphe (l : graphe array) : graphe = ([||], [| [||] |])
+
+(* renvoie true si g1 = g2 en terme de sommets, false sinon *)
+let compare_graphe (g1 : graphe) (g2 : graphe) : bool = true
+
+let canonique_graphe (g : graphe) (cl_eq : string list list) : graphe =
+  ([||], [| [||] |])
+
+(* imprime le graphe *)
+let print_graphe (g : graphe) : unit = ()
 
 (* ----------------------------------------------------------------------- TARJAN *)
 (* renvoie les composantes fortements connectées de g *)
@@ -167,14 +195,16 @@ let tarjan ((sommets, mat) : graphe) : string list list =
   (* On retourne la liste de toutes les composantes trouvées *)
   !res
 
-(* renvoie le représentant canonique selon l'ordre shortlex d'une classe d'equivalence
-remarque : la liste ne doit pas être vide *)
-let canonique (l : string list) : string =
-  match fusion_sort l shortlex with [] -> raise Liste_Vide | x :: q -> x
+(* ----------------------------------------------------------------------- KNUTH-BENDIX  *)
 
-let canonique_graphe (g : graphe) (cl_eq : string list list) : graphe =
-  ([||], [| [||] |])
+(* renvoie les nouvelles classes d'équivalences à partir des précédentes selon knuth bendix *)
+let knuth_bendix (cl : cl_equivalence) : cl_equivalence = [ [] ]
 
+(* ----------------------------------------------------------------------- TESTS *)
+let tests () = ()
+
+(* ----------------------------------------------------------------------- MAIN *)
+(* renvoie l'approximation d'ordre n du graphe *)
 let approx_n (n : int) (gen : string array) (axioms : string list list) : graphe
     =
   let g = ref (init_graphe ()) in
@@ -204,9 +234,6 @@ let approx_n (n : int) (gen : string array) (axioms : string list list) : graphe
     if compare_graphe !g prev then continuer := false
   done;
   !g
-
-(* ----------------------------------------------------------------------- TESTS *)
-let tests () = ()
 
 let main () =
   try
