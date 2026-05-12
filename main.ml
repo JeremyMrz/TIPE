@@ -23,49 +23,43 @@ PROGRAMME :
 
 (* correspondant à un char *)
 type gen = string
+
 (* correspondant à une liste de strings *)
 type elem = string
 
+(* structure de graphe *)
 type 'a mat = 'a array array
-type graphe = string array * bool mat
+type graphe = elem array * bool mat
 
 exception Liste_Vide
 exception Argument_Failure
 
 let init_matrix n m f = Array.init n (fun i -> Array.init m (fun j -> f i j))
-
-let get_   a i j = Array.get (Array.get a i) j
-let tr_   a i j = Array.get (Array.get a j) i
-let transpose  a n m = init_matrix m n (tr_ a)
-
-
-let l_graph_mult (g:gen) (n,l,m:graphe) : graphe =
-  let n = Array.lenght(s) in
-  let s' = Array.map (mult [|g|]) l
-in
-  let m' = if lsign g = 1 then m else transpose m n n
-in
-  (n,l',m')
+let get_ a i j = Array.get (Array.get a i) j
+let tr_ a i j = Array.get (Array.get a j) i
+let transpose a n m = init_matrix m n (tr_ a)
 
 (* ----------------------------------------------------------------------- GENERATEURS *)
-let lsign (g: string) : int =
- match g with
-  |"k" -> 1
-  |"c" -> (-1)
-  | _ -> 
+let lsign (g : gen) : int =
+  match g with "k" -> 1 | "c" -> -1 | _ -> raise Argument_Failure
 
-let rsign (g:gen) : int =
- match g with
-  |K -> 1
-  |C -> 1
+let rsign (g : gen) : int =
+  match g with "k" -> 1 | "c" -> 1 | _ -> raise Argument_Failure
 
+let fuse_cl_eq (cl1 : string list list) (cl2 : string list list) :
+    string list list =
+  [ [] ]
+
+let knuth_bendix (cl : string list list) : string list list = [ [] ]
 
 (* ----------------------------------------------------------------------- GRAPHE *)
 (* initialise le graphe *)
 let init_graphe () : graphe = ([||], [| [||] |])
-let mult_graphe (g : graphe) (gen : string) : graphe = ([||], [| [||] |])
+let l_mult_graphe (g : graphe) (gen : string) : graphe = ([||], [| [||] |])
+let r_mult_graphe (g : graphe) (gen : string) : graphe = ([||], [| [||] |])
 let fuse_graphe (l : graphe array) : graphe = ([||], [| [||] |])
-
+let compare_graphe (g1 : graphe) (g2 : graphe) : bool = true
+let print_graphe (g : graphe) : unit = ()
 
 (* renvoie true si s1 est plus petit que s2 selon l'ordre shortlex *)
 let shortlex (s1 : string) (s2 : string) : bool =
@@ -137,7 +131,7 @@ let tarjan ((sommets, mat) : graphe) : string list list =
     indice_pile.(s) <- true;
 
     for voisin = 0 to n - 1 do
-      if mat.(s).(voisin) = 1 then begin
+      if mat.(s).(voisin) then begin
         (* non visité *)
         if indice.(voisin) = -1 then begin
           parcours_profondeur voisin;
@@ -173,32 +167,43 @@ let tarjan ((sommets, mat) : graphe) : string list list =
   (* On retourne la liste de toutes les composantes trouvées *)
   !res
 
-(* renvoie le représentant canonique selon l'ordre shortlex d'une classe d'equivalence supposée d'élément triée
+(* renvoie le représentant canonique selon l'ordre shortlex d'une classe d'equivalence
 remarque : la liste ne doit pas être vide *)
 let canonique (l : string list) : string =
-  match l with [] -> raise Liste_Vide | x :: q -> x
+  match fusion_sort l shortlex with [] -> raise Liste_Vide | x :: q -> x
 
-let rec approx_n (n : int) (gen : string array) : graphe =
-  let g = ref (init_graphe ()) in
-  let n_gen = Array.length gen in
-  let approx_next (gg : graphe) : graphe =
-    let new_graphe = Array.make (2 * n_gen) ([||], [| [||] |]) in
-    for i = 0 to n_gen do
-      begin
-        new_graphe.(2 * i) <- l_mult_graphe !g gen.(i);
-        new_graphe.((2 * i) + 1) <- r_mult_graphe !g gen.(i)
-      end
-    done;
-    fuse_graphe new_graphe
-  in
-  for (i = 0) to n do 
-    begin
-      g != approx_next(!g)
-    end
-  done;
+let canonique_graphe (g : graphe) (cl_eq : string list list) : graphe =
   ([||], [| [||] |])
 
-let print_graphe (g : graphe) : unit = ()
+let approx_n (n : int) (gen : string array) (axioms : string list list) : graphe
+    =
+  let g = ref (init_graphe ()) in
+  let n_gen = Array.length gen in
+  let cl_eq = ref axioms in
+
+  let approx_next (gg : graphe) : graphe =
+    let new_graphe = Array.make (2 * n_gen) ([||], [| [||] |]) in
+    for i = 0 to n_gen - 1 do
+      begin
+        new_graphe.(2 * i) <- l_mult_graphe gg gen.(i);
+        new_graphe.((2 * i) + 1) <- r_mult_graphe gg gen.(i)
+      end
+    done;
+    let g' = fuse_graphe new_graphe in
+    let cl_eq' = tarjan g' in
+    cl_eq := fuse_cl_eq !cl_eq cl_eq';
+    cl_eq := knuth_bendix !cl_eq;
+    canonique_graphe g' !cl_eq
+  in
+  let i = ref 0 in
+  let continuer = ref true in
+  while !continuer && !i < n do
+    let prev = !g in
+    g := approx_next !g;
+    i := !i + 1;
+    if compare_graphe !g prev then continuer := false
+  done;
+  !g
 
 (* ----------------------------------------------------------------------- TESTS *)
 let tests () = ()
@@ -212,12 +217,10 @@ let main () =
     else
       let n = int_of_string Sys.argv.(1) in
       let gen = [| "k"; "c" |] in
-      let g = approx_n n gen in
+      let axioms = [ [] ] in
+      let g = approx_n n gen axioms in
       print_graphe g
   with Argument_Failure ->
     print_string "Argument Failure : mauvais arguments \n\n"
 
 let _ = main ()
-
-
-(*un petit paff en plus*)
