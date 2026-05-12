@@ -27,7 +27,7 @@ type gen = string
 type elem = string
 
 type 'a mat = 'a array array
-type graphe = string array * int mat
+type graphe = string array * bool mat
 
 exception Liste_Vide
 exception Argument_Failure
@@ -65,6 +65,7 @@ let rsign (g:gen) : int =
 let init_graphe () : graphe = ([||], [| [||] |])
 let mult_graphe (g : graphe) (gen : string) : graphe = ([||], [| [||] |])
 let fuse_graphe (l : graphe array) : graphe = ([||], [| [||] |])
+
 
 (* renvoie true si s1 est plus petit que s2 selon l'ordre shortlex *)
 let shortlex (s1 : string) (s2 : string) : bool =
@@ -190,7 +191,11 @@ let rec approx_n (n : int) (gen : string array) : graphe =
     done;
     fuse_graphe new_graphe
   in
-  let i = ref 0 in
+  for (i = 0) to n do 
+    begin
+      g != approx_next(!g)
+    end
+  done;
   ([||], [| [||] |])
 
 let print_graphe (g : graphe) : unit = ()
@@ -213,3 +218,6 @@ let main () =
     print_string "Argument Failure : mauvais arguments \n\n"
 
 let _ = main ()
+
+
+(*un petit paff en plus*)
