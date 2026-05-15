@@ -96,11 +96,11 @@ let index_of (x : 'a) (l : 'a list) : int =
 
 (* signe des générateurs produit à gauche *)
 let lsign (gen : gen) : int =
-  match gen with "k" -> 1 | "c" -> -1 | _ -> raise Argument_Failure
+  match gen with "k" -> 1 | "i" -> 1 | _ -> raise Argument_Failure
 
 (* signe des générateurs produit à droite *)
 let rsign (gen : gen) : int =
-  match gen with "k" -> 1 | "c" -> 1 | _ -> raise Argument_Failure
+  match gen with "k" -> 1 | "i" -> 1 | _ -> raise Argument_Failure
 
 (* fusionne deux classes d'équivalences 
 remarque : préserve l'ensemble des éléments des deux classes d'éuivalence *)
@@ -112,7 +112,7 @@ let fuse_cl_eq (cl1 : cl_equivalence) (cl2 : cl_equivalence) : cl_equivalence =
         (fun classe -> List.exists (fun x -> List.mem x l) classe)
         cl
     in
-    List.fold_left union l l' :: cl'
+    List.fold_left union l cl' :: l'
   in
   List.fold_left fuse_elem cl1 cl2
 
@@ -143,9 +143,11 @@ let transpose a n m =
   init_matrix m n (tr_ a)
 
 (* initialise le graphe avec une matrice d'adjacence nulle *)
-let init_graphe (l : elem array) : graphe =
-  let n = Array.length l in
-  (l, init_matrix n n (fun _ _ -> false))
+let init_graphe () : graphe =
+  ( [| "1"; "k"; "i" |],
+    [|
+      [| true; true; false |]; [| false; true; false |]; [| true; true; true |];
+    |] )
 
 (* mutliplie un graphe à gauche *)
 let l_mult_graphe ((s, m) : graphe) (gen : gen) : graphe =
@@ -218,7 +220,28 @@ let canonique_graphe ((s, m) : graphe) (cl : cl_equivalence) : graphe =
   (s', m')
 
 (* imprime le graphe *)
-let print_graphe (g : graphe) : unit = ()
+let print_graphe ((s, m) : graphe) : unit =
+  let n = Array.length s in
+  let oc = open_out "graphe.dot" in
+  output_string oc "digraph G {\n";
+  Array.iter
+    (fun x ->
+      let label = if x = "" then "ε" else x in
+      output_string oc (Printf.sprintf "  \"%s\";\n" label))
+    s;
+  for i = 0 to n - 1 do
+    for j = 0 to n - 1 do
+      if m.(i).(j) && i <> j then begin
+        let li = if s.(i) = "" then "ε" else s.(i) in
+        let lj = if s.(j) = "" then "ε" else s.(j) in
+        output_string oc (Printf.sprintf "  \"%s\" -> \"%s\";\n" li lj)
+      end
+    done
+  done;
+  output_string oc "}\n";
+  close_out oc;
+  ignore
+    (Sys.command "dot -Tpng graphe.dot -o graphe.png && xdg-open graphe.png")
 
 (* ----------------------------------------------------------------------- TARJAN *)
 (* renvoie les composantes fortements connectées de g *)
@@ -287,7 +310,51 @@ let tarjan ((sommets, mat) : graphe) : string list list =
 (* ----------------------------------------------------------------------- KNUTH-BENDIX  *)
 
 (* renvoie les nouvelles classes d'équivalences à partir des précédentes selon knuth bendix *)
-let knuth_bendix (cl : cl_equivalence) : cl_equivalence = cl
+let knuth_bendix (cl : cl_equivalence) : cl_equivalence =
+  let regles : (elem * elem) list =
+    let r =
+      List.concat_map
+        (fun classe ->
+          let canonique = List.hd (fusion_sort classe shortlex) in
+          List.filter_map
+            (fun x -> if x = canonique then None else Some (x, canonique))
+            classe)
+        cl
+    in
+    (* trie par longueur décroissante du lhs *)
+    List.sort
+      (fun (lhs1, _) (lhs2, _) ->
+        compare (String.length lhs2) (String.length lhs1))
+      r
+  in
+  (* applique une règle à x *)
+  let appliquer_regle (x : elem) (lhs : elem) (rhs : elem) : elem option =
+    let n = String.length x in
+    let m = String.length lhs in
+    let rec cherche i =
+      if i + m > n then None
+      else if String.sub x i m = lhs then
+        Some (String.sub x 0 i ^ rhs ^ String.sub x (i + m) (n - i - m))
+      else cherche (i + 1)
+    in
+    cherche 0
+  in
+  (* réduit x au maximum *)
+  let rec reduire (x : elem) : elem =
+    match
+      List.find_map (fun (lhs, rhs) -> appliquer_regle x lhs rhs) regles
+    with
+    | None -> x
+    | Some x' -> reduire x'
+  in
+  List.fold_left
+    (fun acc classe ->
+      List.fold_left
+        (fun acc2 x ->
+          let r = reduire x in
+          if r = x then acc2 else fuse_cl_eq acc2 [ [ x; r ] ])
+        acc classe)
+    cl cl
 
 (* ----------------------------------------------------------------------- TESTS *)
 let tests () = ()
@@ -296,12 +363,13 @@ let tests () = ()
 (* renvoie l'approximation d'ordre n du graphe *)
 let approx_n (n : int) (gen : string array) (axioms : string list list) : graphe
     =
-  let g = ref (init_graphe [| "" |]) in
+  let g = ref (init_graphe ()) in
   let n_gen = Array.length gen in
   let cl_eq = ref axioms in
 
   let approx_next (gg : graphe) : graphe =
-    let new_graphe = Array.make (2 * n_gen) ([||], [| [||] |]) in
+    let new_graphe = Array.make ((2 * n_gen) + 1) ([||], [| [||] |]) in
+    new_graphe.(2 * n_gen) <- gg;
     for i = 0 to n_gen - 1 do
       begin
         new_graphe.(2 * i) <- l_mult_graphe gg gen.(i);
@@ -326,17 +394,20 @@ let approx_n (n : int) (gen : string array) (axioms : string list list) : graphe
 
 let main () =
   try
-    if Array.length Sys.argv <= 2 then raise Argument_Failure;
+    if Array.length Sys.argv < 2 then raise Argument_Failure;
     if Sys.argv.(1) = "test" then (
       print_string "Vérification des tests... \n";
       tests ())
     else
       let n = int_of_string Sys.argv.(1) in
-      let gen = [| "k"; "c" |] in
-      let axioms = [ [ "k"; "kk" ]; [ ""; "cc" ] ] in
+      let gen = [| "i"; "k" |] in
+      let axioms =
+        [ [ "k"; "kk"; "1k"; "k1" ]; [ "1" ]; [ "i"; "1i"; "i1"; "ii" ] ]
+      in
       let g = approx_n n gen axioms in
       print_graphe g
-  with Argument_Failure ->
-    print_string "Argument Failure : mauvais arguments \n\n"
+  with
+  | Argument_Failure -> print_string "Argument Failure : mauvais arguments \n\n"
+  | e -> print_string ("Exception : " ^ Printexc.to_string e ^ "\n")
 
 let _ = main ()
