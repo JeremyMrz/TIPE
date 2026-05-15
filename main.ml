@@ -82,51 +82,140 @@ let rec fusion_sort (l : 'a list) (f : 'a -> 'a -> bool) : 'a list =
       let l1, l2 = split l in
       fuse (fusion_sort l1 f) (fusion_sort l2 f)
 
+(* renvoie l'union des termes de l1 et l2 *)
+let union (l1 : 'a list) (l2 : 'a list) : 'a list =
+  List.fold_left (fun acc x -> if List.mem x acc then acc else x :: acc) l1 l2
+
+(* renvoie l'indice de x dans l *)
+let index_of (x : 'a) (l : 'a list) : int =
+  match List.find_index (fun y -> y = x) l with
+  | Some i -> i
+  | None -> raise Liste_Vide
+
 (* ----------------------------------------------------------------------- GENERATEURS *)
 
 (* signe des générateurs produit à gauche *)
-let lsign (g : gen) : int =
-  match g with "k" -> 1 | "c" -> -1 | _ -> raise Argument_Failure
+let lsign (gen : gen) : int =
+  match gen with "k" -> 1 | "c" -> -1 | _ -> raise Argument_Failure
 
 (* signe des générateurs produit à droite *)
-let rsign (g : gen) : int =
-  match g with "k" -> 1 | "c" -> 1 | _ -> raise Argument_Failure
+let rsign (gen : gen) : int =
+  match gen with "k" -> 1 | "c" -> 1 | _ -> raise Argument_Failure
 
-(* fusionne deux classes d'équivalence 
+(* fusionne deux classes d'équivalences 
 remarque : préserve l'ensemble des éléments des deux classes d'éuivalence *)
 let fuse_cl_eq (cl1 : cl_equivalence) (cl2 : cl_equivalence) : cl_equivalence =
-  [ [] ]
+  (* renvoie la fusion d'un ensemble de classes d'équivalences avec une simple classe d'équivalence *)
+  let fuse_elem (cl : cl_equivalence) (l : elem list) : cl_equivalence =
+    let cl', l' =
+      List.partition
+        (fun classe -> List.exists (fun x -> List.mem x l) classe)
+        cl
+    in
+    List.fold_left union l l' :: cl'
+  in
+  List.fold_left fuse_elem cl1 cl2
 
-(* renvoie le représentant canonique selon l'ordre shortlex d'une classe d'equivalence
-remarque : la liste ne doit pas être vide *)
-let canonique (l : elem list) : elem =
-  match fusion_sort l shortlex with [] -> raise Liste_Vide | x :: q -> x
+(* renvoie le représentant canonique selon l'ordre shortlex d'une classe d'equivalence *)
+let shortlex_classe (cl : cl_equivalence) : elem list =
+  let canonique (l : elem list) : elem =
+    match fusion_sort l shortlex with [] -> raise Liste_Vide | x :: _ -> x
+  in
+  List.map canonique cl
+
+(* renvoie le représentant canonique d'un élément x dans cl en fonction de cl_canonique (que l'on suppose dans le même ordre)
+remarque : x dans se trouver dans une classe d'équivalence *)
+let rec canonique_of (x : elem) (cl : cl_equivalence) (cl_canonique : elem list)
+    : elem =
+  match cl with
+  | [] -> raise Liste_Vide
+  | l :: q ->
+      if List.mem x l then List.hd cl_canonique
+      else canonique_of x q (List.tl cl_canonique)
 
 (* ----------------------------------------------------------------------- GRAPHE *)
 
 let init_matrix n m f = Array.init n (fun i -> Array.init m (fun j -> f i j))
 let get_ a i j = Array.get (Array.get a i) j
-let tr_ a i j = Array.get (Array.get a j) i
-let transpose a n m = init_matrix m n (tr_ a)
 
-(* initialise le graphe *)
-let init_graphe () : graphe = ([||], [| [||] |])
+let transpose a n m =
+  let tr_ a i j = Array.get (Array.get a j) i in
+  init_matrix m n (tr_ a)
+
+(* initialise le graphe avec une matrice d'adjacence nulle *)
+let init_graphe (l : elem array) : graphe =
+  let n = Array.length l in
+  (l, init_matrix n n (fun _ _ -> false))
 
 (* mutliplie un graphe à gauche *)
-let l_mult_graphe (g : graphe) (gen : string) : graphe = ([||], [| [||] |])
+let l_mult_graphe ((s, m) : graphe) (gen : gen) : graphe =
+  let s' = Array.map (fun x -> gen ^ x) s in
+  let n = Array.length s in
+  let m' = if lsign gen = 1 then m else transpose m n n in
+  (s', m')
 
 (* mutliplie un graphe à droite *)
-let r_mult_graphe (g : graphe) (gen : string) : graphe = ([||], [| [||] |])
+let r_mult_graphe ((s, m) : graphe) (gen : gen) : graphe =
+  let s' = Array.map (fun x -> x ^ gen) s in
+  let n = Array.length s in
+  let m' = if rsign gen = 1 then m else transpose m n n in
+  (s', m')
 
 (* fusionne une liste de graphes 
-remarque : préserve l'ensemble des sommets/arrêtes *)
-let fuse_graphe (l : graphe array) : graphe = ([||], [| [||] |])
+remarque : préserve l'ensemble des sommets/arrêtes et chaque graphe doit être de même taille *)
+let fuse_graphe (l : graphe array) : graphe =
+  let n = Array.length (fst l.(0)) in
+  (* renvoie l'union de a1, a2 sans doublons *)
+  let union_array (a1 : 'a array) (a2 : 'a array) : 'a array =
+    let l1 = Array.to_list a1 in
+    let l2 = Array.to_list a2 in
+    Array.of_list (union l1 l2)
+  in
+  let s' = Array.fold_left (fun x (s, _) -> union_array x s) [||] l in
+  let n' = Array.length s' in
+  let m' = init_matrix n' n' (fun _ _ -> false) in
 
-(* renvoie true si g1 = g2 en terme de sommets, false sinon *)
-let compare_graphe (g1 : graphe) (g2 : graphe) : bool = true
+  (* fusionne les sommets directement de manière impérative *)
+  Array.iter
+    (fun (s, m) ->
+      for i = 0 to n - 1 do
+        for j = 0 to n - 1 do
+          let i' = index_of s.(i) (Array.to_list s') in
+          let j' = index_of s.(j) (Array.to_list s') in
+          m'.(i').(j') <- m'.(i').(j') || m.(i).(j)
+        done
+      done)
+    l;
+  (s', m')
 
-let canonique_graphe (g : graphe) (cl_eq : string list list) : graphe =
-  ([||], [| [||] |])
+(* renvoie true si g1 = g2 en terme de sommets, false sinon
+remarques : les sommets doivent être tous distincts *)
+let compare_graphe ((s1, m1) : graphe) ((s2, m2) : graphe) : bool =
+  Array.length s1 = Array.length s2
+  && Array.for_all (fun x -> Array.exists (fun y -> y = x) s2) s1
+
+(* renvoie le graphe consistué des éléments canoniques cl *)
+let canonique_graphe ((s, m) : graphe) (cl : cl_equivalence) : graphe =
+  let n = Array.length s in
+  (* nouveau graphe *)
+  let cl' = shortlex_classe cl in
+  let s' = Array.of_list cl' in
+  let n' = Array.length s' in
+  let m' = init_matrix n' n' (fun _ _ -> false) in
+
+  for i = 0 to n - 1 do
+    begin
+      for j = 0 to n - 1 do
+        begin
+          (* renvoie les indices des réprésentants canoniques associées dans la nouvelle matrice *)
+          let i' = index_of (canonique_of s.(i) cl cl') cl' in
+          let j' = index_of (canonique_of s.(j) cl cl') cl' in
+          m'.(i').(j') <- m'.(i').(j') || m.(i).(j)
+        end
+      done
+    end
+  done;
+  (s', m')
 
 (* imprime le graphe *)
 let print_graphe (g : graphe) : unit = ()
@@ -159,7 +248,7 @@ let tarjan ((sommets, mat) : graphe) : string list list =
     indice_pile.(s) <- true;
 
     for voisin = 0 to n - 1 do
-      if mat.(s).(voisin) then begin
+      if get_ mat s voisin then begin
         (* non visité *)
         if indice.(voisin) = -1 then begin
           parcours_profondeur voisin;
@@ -198,7 +287,7 @@ let tarjan ((sommets, mat) : graphe) : string list list =
 (* ----------------------------------------------------------------------- KNUTH-BENDIX  *)
 
 (* renvoie les nouvelles classes d'équivalences à partir des précédentes selon knuth bendix *)
-let knuth_bendix (cl : cl_equivalence) : cl_equivalence = [ [] ]
+let knuth_bendix (cl : cl_equivalence) : cl_equivalence = cl
 
 (* ----------------------------------------------------------------------- TESTS *)
 let tests () = ()
@@ -207,7 +296,7 @@ let tests () = ()
 (* renvoie l'approximation d'ordre n du graphe *)
 let approx_n (n : int) (gen : string array) (axioms : string list list) : graphe
     =
-  let g = ref (init_graphe ()) in
+  let g = ref (init_graphe [| "" |]) in
   let n_gen = Array.length gen in
   let cl_eq = ref axioms in
 
@@ -244,7 +333,7 @@ let main () =
     else
       let n = int_of_string Sys.argv.(1) in
       let gen = [| "k"; "c" |] in
-      let axioms = [ [] ] in
+      let axioms = [ [ "k"; "kk" ]; [ ""; "cc" ] ] in
       let g = approx_n n gen axioms in
       print_graphe g
   with Argument_Failure ->
