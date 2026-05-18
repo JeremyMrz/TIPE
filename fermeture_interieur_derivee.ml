@@ -15,20 +15,28 @@ exception Argument_Failure
 
 (* initialise le graphe avec une matrice d'adjacence nulle *)
 let init_graphe () : graphe =
-  ( [| "1"; "k"; "c" |],
+  ( [| "1"; "k"; "i"; "d" |],
     [|
-      [| true; true; false |];
-      [| false; true; false |];
-      [| false; false; true |];
+      [| true; true; false; false |];
+      [| false; true; false; false |];
+      [| true; true; true; false |];
+      [| false; true; false; true |];
     |] )
 
-let gen = [| "c"; "k" |]
-let axioms = [ [ "k"; "kk"; "1k"; "k1" ]; [ "1"; "cc" ]; [ "c"; "1c"; "c1" ] ]
+let gen = [| "i"; "k"; "d" |]
+
+let axioms =
+  [
+    [ "k"; "kk"; "1k"; "k1" ];
+    [ "1" ];
+    [ "i"; "1i"; "i1"; "ii" ];
+    [ "d"; "1d"; "d1" ];
+  ]
 
 (* signe des générateurs produit à gauche *)
 let lsign (gen : gen) : int =
-  match gen with "k" -> 1 | "c" -> -1 | _ -> raise Argument_Failure
+  match gen with "k" -> 1 | "i" -> 1 | "d" -> 1 | _ -> raise Argument_Failure
 
 (* signe des générateurs produit à droite *)
 let rsign (gen : gen) : int =
-  match gen with "k" -> 1 | "c" -> 1 | _ -> raise Argument_Failure
+  match gen with "k" -> 1 | "i" -> 1 | "d" -> 1 | _ -> raise Argument_Failure

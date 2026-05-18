@@ -96,11 +96,11 @@ let index_of (x : 'a) (l : 'a list) : int =
 
 (* signe des générateurs produit à gauche *)
 let lsign (gen : gen) : int =
-  match gen with "k" -> 1 | "c" -> -1 | _ -> raise Argument_Failure
+  match gen with "k" -> 1 | "c" -> -1 | "i" -> 1 | _ -> raise Argument_Failure
 
 (* signe des générateurs produit à droite *)
 let rsign (gen : gen) : int =
-  match gen with "k" -> 1 | "c" -> 1 | _ -> raise Argument_Failure
+  match gen with "k" -> 1 | "c" -> 1 | "i" -> 1 | _ -> raise Argument_Failure
 
 (* fusionne deux classes d'équivalences 
 remarque : préserve l'ensemble des éléments des deux classes d'éuivalence *)
@@ -144,11 +144,12 @@ let transpose a n m =
 
 (* initialise le graphe avec une matrice d'adjacence nulle *)
 let init_graphe () : graphe =
-  ( [| "1"; "k"; "c" |],
+  ( [| "1"; "k"; "c"; "i" |],
     [|
-      [| true; true; false |];
-      [| false; true; false |];
-      [| false; false; true |];
+      [| true; true; false; false |];
+      [| false; true; false; false |];
+      [| false; false; true; false |];
+      [| true; true; false; true |];
     |] )
 
 (* mutliplie un graphe à gauche *)
@@ -395,9 +396,15 @@ let main () =
   try
     if Array.length Sys.argv < 2 then raise Argument_Failure;
     let n = int_of_string Sys.argv.(1) in
-    let gen = [| "k"; "c" |] in
+    let gen = [| "c"; "k"; "i" |] in
     let axioms =
-      [ [ "k"; "kk"; "1k"; "k1" ]; [ "1"; "cc" ]; [ "c"; "1c"; "c1" ] ]
+      [
+        [ "k"; "kk"; "1k"; "k1" ];
+        [ "1"; "cc" ];
+        [ "c"; "1c"; "c1" ];
+        [ "i"; "1i"; "i1"; "ii"; "ckc" ];
+        [ "kckck"; "kck" ];
+      ]
     in
     let g = approx_n n gen axioms in
     print_graphe g
