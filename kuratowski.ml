@@ -96,11 +96,11 @@ let index_of (x : 'a) (l : 'a list) : int =
 
 (* signe des générateurs produit à gauche *)
 let lsign (gen : gen) : int =
-  match gen with "k" -> 1 | "c" -> -1 | "i" -> 1 | _ -> raise Argument_Failure
+  match gen with "k" -> 1 | "c" -> -1 | _ -> raise Argument_Failure
 
 (* signe des générateurs produit à droite *)
 let rsign (gen : gen) : int =
-  match gen with "k" -> 1 | "c" -> 1 | "i" -> 1 | _ -> raise Argument_Failure
+  match gen with "k" -> 1 | "c" -> 1 | _ -> raise Argument_Failure
 
 (* fusionne deux classes d'équivalences 
 remarque : préserve l'ensemble des éléments des deux classes d'éuivalence *)
@@ -144,12 +144,11 @@ let transpose a n m =
 
 (* initialise le graphe avec une matrice d'adjacence nulle *)
 let init_graphe () : graphe =
-  ( [| "1"; "k"; "c"; "i" |],
+  ( [| "1"; "k"; "c" |],
     [|
-      [| true; true; false; false |];
-      [| false; true; false; false |];
-      [| false; false; true; false |];
-      [| true; true; false; true |];
+      [| true; true; false |];
+      [| false; true; false |];
+      [| false; false; true |];
     |] )
 
 (* mutliplie un graphe à gauche *)
@@ -312,199 +311,52 @@ let tarjan ((sommets, mat) : graphe) : string list list =
 
 (* ----------------------------------------------------------------------- KNUTH-BENDIX  *)
 
-(* Un système de réécriture est une liste de règles (lhs, rhs) orientées,
-   où lhs > rhs selon shortlex.
-   Invariant : le système est réduit (chaque membre est en forme normale). *)
-type rewrite_system = (elem * elem) list
-
-(* ---- Réduction ---- *)
-
-(* Applique la première règle applicable à x, renvoie Some résultat ou None *)
-let appliquer_une_regle (regles : rewrite_system) (x : elem) : elem option =
-  let n = String.length x in
-  List.find_map
-    (fun (lhs, rhs) ->
-      let m = String.length lhs in
-      let rec cherche i =
-        if i + m > n then None
-        else if String.sub x i m = lhs then
-          Some (String.sub x 0 i ^ rhs ^ String.sub x (i + m) (n - i - m))
-        else cherche (i + 1)
-      in
-      cherche 0)
-    regles
-
-(* Réduit x à sa forme normale selon le système de réécriture *)
-let rec reduire (regles : rewrite_system) (x : elem) : elem =
-  match appliquer_une_regle regles x with
-  | None -> x
-  | Some x' -> reduire regles x'
-
-(* ---- Orientation d'une équation ---- *)
-
-(* Oriente une paire {s, t} en règle selon shortlex.
-   Renvoie Some (grand, petit) si s ≠ t, None si s = t (triviale). *)
-let orienter (s : elem) (t : elem) : (elem * elem) option =
-  if s = t then None
-  else if shortlex t s then Some (s, t) (* t < s  →  s → t *)
-  else Some (t, s)
-(* s < t  →  t → s *)
-
-(* ---- Paires critiques ---- *)
-
-(* Toutes les superpositions (overlaps) entre la règle (l1, r1) et (l2, r2).
-   Un overlap de longueur k (1 ≤ k < min(|l1|,|l2|)) existe quand
-   le suffixe de longueur k de l1 est un préfixe de l2.
-   Cela génère la paire critique :
-     r1 · (suffixe de l2 après l'overlap)  vs  (préfixe de l1 avant l'overlap) · r2  *)
-let overlaps ((l1, r1) : elem * elem) ((l2, r2) : elem * elem) :
-    (elem * elem) list =
-  let n1 = String.length l1 in
-  let n2 = String.length l2 in
-  let pairs = ref [] in
-
-  (* --- Overlap suffixe de l1 avec préfixe de l2 --- *)
-  for k = 1 to min n1 n2 - 1 do
-    (* suffixe de longueur k de l1 = préfixe de longueur k de l2 ? *)
-    if String.sub l1 (n1 - k) k = String.sub l2 0 k then begin
-      (* le mot "commun" est l1 · (reste de l2) *)
-      let reste_l2 = String.sub l2 k (n2 - k) in
-      let s = r1 ^ reste_l2 in
-      let t = String.sub l1 0 (n1 - k) ^ r2 in
-      pairs := (s, t) :: !pairs
-    end
-  done;
-
-  (* --- Inclusion : l2 est un sous-mot de l1 (l1 inclut l2 entièrement) --- *)
-  for i = 0 to n1 - n2 do
-    if String.sub l1 i n2 = l2 then begin
-      let s = String.sub l1 0 i ^ r2 ^ String.sub l1 (i + n2) (n1 - i - n2) in
-      let t = r1 in
-      pairs := (s, t) :: !pairs
-    end
-  done;
-
-  !pairs
-
-(* Toutes les paires critiques du système.
-   On considère chaque paire de règles (y compris (ri, ri)). *)
-let paires_critiques (regles : rewrite_system) : (elem * elem) list =
-  List.concat_map
-    (fun r1 -> List.concat_map (fun r2 -> overlaps r1 r2) regles)
-    regles
-
-(* ---- Réduction d'un système ---- *)
-
-(* Réduit les membres droits de toutes les règles.
-   Si une règle devient triviale (lhs = rhs en forme normale), on la supprime. *)
-let reduire_systeme (regles : rewrite_system) : rewrite_system =
-  List.filter_map
-    (fun (lhs, rhs) ->
-      let rhs' = reduire regles rhs in
-      if lhs = rhs' then None else Some (lhs, rhs'))
-    regles
-
-(* Supprime les règles dont le lhs est réductible par une autre règle du système.
-   Cela préserve la "réduction" du système. *)
-let simplifier_systeme (regles : rewrite_system) : rewrite_system =
-  List.filter
-    (fun (lhs, _rhs) ->
-      (* lhs doit être irréductible par les autres règles *)
-      let autres = List.filter (fun r -> r <> (lhs, _rhs)) regles in
-      reduire autres lhs = lhs)
-    regles
-
-(* ---- Algorithme de Knuth-Bendix complet ---- *)
-
-(* Complète un système de réécriture par l'algorithme de Knuth-Bendix.
-   - max_iter : nombre maximal d'itérations (garde-fou)
-   - Renvoie Some système_confluent si terminé, None si non terminé *)
-let knuth_bendix_complet ?(max_iter = 200) (regles_init : rewrite_system) :
-    rewrite_system option =
-  let regles = ref (reduire_systeme regles_init) in
-  let iter = ref 0 in
-  let termine = ref false in
-  let echec = ref false in
-
-  while (not !termine) && (not !echec) && !iter < max_iter do
-    iter := !iter + 1;
-    let paires = paires_critiques !regles in
-
-    (* Pour chaque paire critique, réduire les deux membres et orienter *)
-    let nouvelles_regles = ref [] in
-    List.iter
-      (fun (s, t) ->
-        let s' = reduire !regles s in
-        let t' = reduire !regles t in
-        match orienter s' t' with
-        | None -> () (* paire triviale : confluence locale vérifiée *)
-        | Some regle -> nouvelles_regles := regle :: !nouvelles_regles)
-      paires;
-
-    if !nouvelles_regles = [] then
-      (* Toutes les paires critiques sont confluentes : terminé *)
-      termine := true
-    else begin
-      (* Ajouter les nouvelles règles, réduire, simplifier *)
-      regles := !regles @ !nouvelles_regles;
-      regles := reduire_systeme !regles;
-      regles := simplifier_systeme !regles
-    end
-  done;
-
-  if !termine then Some !regles
-  else if !echec then None
-  else begin
-    (* max_iter atteint : on renvoie le système tel quel (partiel) *)
-    Printf.eprintf
-      "Knuth-Bendix: limite d'itérations (%d) atteinte, système partiel.\n"
-      max_iter;
-    Some !regles
-  end
-
-(* ---- Interface avec les classes d'équivalence ---- *)
-
-(* Construit le système de réécriture initial à partir des classes d'équivalence.
-   Chaque classe { x1, x2, … } donne les règles xi → canonique (le plus petit selon shortlex).
-   On exécute ensuite la complétion de Knuth-Bendix pour obtenir un système confluent. *)
-let knuth_bendix_depuis_cl (cl : cl_equivalence) : rewrite_system =
-  (* Règles initiales : tout élément non-canonique → canonique *)
-  let regles_init : rewrite_system =
-    List.concat_map
-      (fun classe ->
-        let canonique = List.hd (fusion_sort classe shortlex) in
-        List.filter_map
-          (fun x -> if x = canonique then None else orienter x canonique)
-          classe)
-      cl
-  in
-  match knuth_bendix_complet ~max_iter:500 regles_init with
-  | Some sys -> sys
-  | None -> regles_init (* fallback *)
-
-(* Renvoie les nouvelles classes d'équivalences à partir des précédentes
-   en utilisant le système de Knuth-Bendix complété.
-   Deux éléments sont équivalents ssi ils ont la même forme normale. *)
+(* renvoie les nouvelles classes d'équivalences à partir des précédentes selon knuth bendix *)
 let knuth_bendix (cl : cl_equivalence) : cl_equivalence =
-  (* 1. Construire le système de réécriture confluent *)
-  let regles = knuth_bendix_depuis_cl cl in
-
-  (* 2. Calculer la forme normale de chaque élément *)
-  let tous_les_elements = List.sort_uniq compare (List.concat cl) in
-
-  (* 3. Regrouper par forme normale *)
-  let table : (elem, elem list) Hashtbl.t = Hashtbl.create 16 in
-  List.iter
-    (fun x ->
-      let nf = reduire regles x in
-      let groupe =
-        match Hashtbl.find_opt table nf with Some g -> g | None -> []
-      in
-      Hashtbl.replace table nf (x :: groupe))
-    tous_les_elements;
-
-  (* 4. Reconstruire les classes *)
-  Hashtbl.fold (fun _nf groupe acc -> groupe :: acc) table []
+  let regles : (elem * elem) list =
+    let r =
+      List.concat_map
+        (fun classe ->
+          let canonique = List.hd (fusion_sort classe shortlex) in
+          List.filter_map
+            (fun x -> if x = canonique then None else Some (x, canonique))
+            classe)
+        cl
+    in
+    (* trie par longueur décroissante du lhs *)
+    List.sort
+      (fun (lhs1, _) (lhs2, _) ->
+        compare (String.length lhs2) (String.length lhs1))
+      r
+  in
+  (* applique une règle à x *)
+  let appliquer_regle (x : elem) (lhs : elem) (rhs : elem) : elem option =
+    let n = String.length x in
+    let m = String.length lhs in
+    let rec cherche i =
+      if i + m > n then None
+      else if String.sub x i m = lhs then
+        Some (String.sub x 0 i ^ rhs ^ String.sub x (i + m) (n - i - m))
+      else cherche (i + 1)
+    in
+    cherche 0
+  in
+  (* réduit x au maximum *)
+  let rec reduire (x : elem) : elem =
+    match
+      List.find_map (fun (lhs, rhs) -> appliquer_regle x lhs rhs) regles
+    with
+    | None -> x
+    | Some x' -> reduire x'
+  in
+  List.fold_left
+    (fun acc classe ->
+      List.fold_left
+        (fun acc2 x ->
+          let r = reduire x in
+          if r = x then acc2 else fuse_cl_eq acc2 [ [ x; r ] ])
+        acc classe)
+    cl cl
 
 (* ----------------------------------------------------------------------- MAIN *)
 (* renvoie l'approximation d'ordre n du graphe *)
@@ -543,15 +395,9 @@ let main () =
   try
     if Array.length Sys.argv < 2 then raise Argument_Failure;
     let n = int_of_string Sys.argv.(1) in
-    let gen = [| "c"; "k"; "i" |] in
-
+    let gen = [| "c"; "k" |] in
     let axioms =
-      [
-        [ "k"; "kk"; "1k"; "k1" ];
-        [ "1"; "cc" ];
-        [ "i"; "1i"; "i1"; "ii"; "ckc" ];
-        [ "c"; "1c"; "c1" ];
-      ]
+      [ [ "k"; "kk"; "1k"; "k1" ]; [ "1"; "cc" ]; [ "c"; "1c"; "c1" ] ]
     in
     let g = approx_n n gen axioms in
     print_graphe g
